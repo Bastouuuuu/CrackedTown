@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cracked Town MVP</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { margin: 0; background: #1a1a1a; color: #0ff; font-family: 'Courier New', monospace; overflow: hidden; }
+        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+        .btn { pointer-events: auto; background: #0ff; color: #000; border: none; padding: 5px; cursor: pointer; margin: 5px; }
+        #log { position: absolute; bottom: 10px; left: 10px; color: #f0f; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="stats">Coins: 100 | Status: Sober</div>
+        <button class="btn" onclick="buyDrink()">Bar: Beer (5c)</button>
+        <button class="btn" onclick="gamble()">Casino: All-in (10c)</button>
+    </div>
+    <div id="log">Bienvenue à Cracked Town...</div>
+
+    <script>
+        const socket = io();
+        let otherPlayers = {};
+        let player;
+
+        const config = {
+            type: Phaser.AUTO,
+            width: 800, height: 600,
+            parent: 'game',
+            physics: { default: 'arcade' },
+            scene: { preload, create, update }
+        };
+
+        const game = new Phaser.Game(config);
+
+        function preload() {
+            this.load.image('town', 'https://labs.phaser.io/assets/skies/space3.png'); // Placeholder background
+            this.load.spritesheet('dude', 'https://labs.phaser.io/assets/sprites/dude.png', { frameWidth: 32, frameHeight: 48 });
+        }
+
+        function create() {
+            this.add.text(400, 300, 'TOWN SQUARE', { fontSize: '64px', fill: '#0ff', alpha: 0.1 }).setOrigin(0.5);
+            
+            socket.on('currentPlayers', (players) => {
+                Object.keys(players).forEach((id) => {
+                    if (id === socket.id) addPlayer(this, players[id]);
+                    else addOtherPlayers(this, players[id]);
+                });
+            });
+
+            socket.on('newPlayer', (playerInfo) => addOtherPlayers(this, playerInfo));
+            
+            socket.on('playerMoved', (p) => {
+                if (otherPlayers[p.id]) otherPlayers[p.id].setPosition(p.x, p.y);
+            });
+
+            socket.on('updateStats', (p) => {
+                if (p.id === socket.id) {
+                    document.getElementById('stats').innerText = `Coins: ${p.coins} | Status: ${p.status}`;
+                    if(p.status === "Drunk") this.cameras.main.shake(500, 0.01);
+                }
+            });
+
+            socket.on('announcement', (msg) => {
+                document.getElementById('log').innerHTML += `<br>> ${msg}`;
+            });
+
+            socket.on('playerLeft', (id) => {
+                if (otherPlayers[id]) { otherPlayers[id].destroy(); delete otherPlayers[id]; }
+            });
+
+            this.cursors = this.input.keyboard.createCursorKeys();
+        }
+
+        function update() {
+            if (player) {
+                const speed = player.status === "Drunk" ? 80 : 160;
+                player.body.setVelocity(0);
+                if (this.cursors.left.isDown) player.body.setVelocityX(-speed);
+                else if (this.cursors.right.isDown) player.body.setVelocityX(speed);
+                if (this.cursors.up.isDown) player.body.setVelocityY(-speed);
+                else if (this.cursors.down.isDown) player.body.setVelocityY(speed);
+
+                socket.emit('playerMovement', { x: player.x, y: player.y });
+            }
+        }
+
+        function addPlayer(scene, info) {
+            player = scene.physics.add.sprite(info.x, info.y, 'dude').setOrigin(0.5, 0.5);
+            player.setTint(0x00ffff);
+        }
+
+        function addOtherPlayers(scene, info) {
+            const other = scene.add.sprite(info.x, info.y, 'dude').setOrigin(0.5, 0.5);
+            other.setTint(0xff00ff);
+            other.id = info.id;
+            otherPlayers[info.id] = other;
+        }
+
+        // UI Functions
+        function buyDrink() { socket.emit('buyDrink', { name: 'Beer', price: 5 }); }
+        function gamble() { socket.emit('gamble', 10); }
+    </script>
+</body>
+</html>
